@@ -62,13 +62,29 @@ const cx = cv.getContext("2d");
 const W = cv.width, H = cv.height;
 const WATER = H - 96;                 // waterline y
 
+// ---------- chrome dino runner constants (t-rex runner config, px-scaled) ----------
+const CFG = {
+  START_SPEED: 6,
+  MAX_SPEED: 13,
+  ACCELERATION: 0.0012,        // speed gained per frame — dino's slow linear ramp
+  GRAVITY: 0.6,
+  JUMP_VELOCITY: 11.6,         // initial upward speed (plus a speed bonus, like dino)
+  DROP_VELOCITY: -4,           // releasing jump early clamps ascent to this (short hop)
+  SPEED_DROP: 8,               // pressing ↓ mid-air slams you down
+  SCORE_COEFF: 0.030,          // score = distance * coefficient
+  GAP_COEFF: 0.6,              // dino gap formula: width*speed + MIN_GAP*GAP_COEFF
+  MIN_GAP: 320,
+  MAX_GAP_COEFF: 1.5,
+  GULL_MIN_SPEED: 8,           // gulls only appear once you're fast (dino's pterodactyl rule)
+  CLEAR_TIME: 666              // ms milestone flash, dino-style
+};
+
 // ---------- palette ----------
 const P = {
   ink: "#25223A",
   pink: "#FF6F91",
   pinkSoft: "#FFA3B8",
   aqua: "#2FB5A6",
-  aquaDeep: "#1E8F84",
   cream: "#FFF6EA",
   skyTop: "#FFF3E4", skyMid: "#FFD9BC", skyLow: "#FFC3A8",
   sunTop: "#FFB36B", sunLow: "#FF6F91",
@@ -80,80 +96,100 @@ const P = {
 // ---------- state ----------
 const ST = { START: 0, PLAY: 1, OVER: 2 };
 let state = ST.START;
-let t = 0;                            // global ticks
+let t = 0;
 let speed, dist, score, hi = 0, shake = 0;
+let flashUntil = 0;                   // score milestone flash (every 100, like dino)
 try { hi = +localStorage.getItem("swellrunner-hi") || 0; } catch (e) {}
 
 const surfer = { x: 150, y: WATER, vy: 0, w: 46, h: 58, duck: false, onWater: true, trickAngle: 0 };
 let obstacles = [], foam = [], clouds = [];
-let spawnIn = 0;
+let nextSpawnX = 0;                   // distance-based spawning, dino-style
 
 function reset() {
-  speed = 6; dist = 0; score = 0; shake = 0;
+  speed = CFG.START_SPEED; dist = 0; score = 0; shake = 0; flashUntil = 0;
   surfer.y = WATER; surfer.vy = 0; surfer.duck = false; surfer.onWater = true;
-  obstacles = []; foam = []; spawnIn = 90;
+  obstacles = []; foam = [];
+  nextSpawnX = dist + 520;            // breathing room before the first obstacle
 }
 
 for (let i = 0; i < 5; i++) {
   clouds.push({ x: Math.random() * W, y: 40 + Math.random() * 110, s: 0.6 + Math.random() * 0.9 });
 }
 
-// ---------- input ----------
-function jump() {
+// ---------- input (dino-style: variable jump height) ----------
+function startJump() {
   if (state === ST.START) { state = ST.PLAY; reset(); return; }
   if (state === ST.OVER)  { state = ST.PLAY; reset(); return; }
   if (surfer.onWater) {
-    surfer.vy = -13.2;
+    surfer.vy = -(CFG.JUMP_VELOCITY + speed / 9);   // dino: jump scales slightly with speed
     surfer.onWater = false;
     surfer.duck = false;
     splash(surfer.x, WATER, 8);
   }
 }
+function endJump() {
+  // releasing the key while still rising shortens the jump — exact dino behaviour
+  if (!surfer.onWater && surfer.vy < CFG.DROP_VELOCITY) surfer.vy = CFG.DROP_VELOCITY;
+}
 function setDuck(on) {
   if (state !== ST.PLAY) return;
+  if (on && !surfer.onWater) { surfer.vy = CFG.SPEED_DROP; return; }   // dino speed-drop
   surfer.duck = on;
-  if (on && !surfer.onWater) surfer.vy += 4.5;   // fast-drop like the dino
 }
 
 addEventListener("keydown", e => {
   if (e.repeat) return;
-  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); jump(); }
+  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); startJump(); }
   if (e.code === "ArrowDown") { e.preventDefault(); setDuck(true); }
 });
-addEventListener("keyup", e => { if (e.code === "ArrowDown") setDuck(false); });
+addEventListener("keyup", e => {
+  if (e.code === "Space" || e.code === "ArrowUp") endJump();
+  if (e.code === "ArrowDown") setDuck(false);
+});
 
-let duckTouch = null;
+let duckTouch = null, jumpTouch = null;
 cv.addEventListener("touchstart", e => {
   e.preventDefault();
   const r = cv.getBoundingClientRect();
   const touch = e.changedTouches[0];
   const yFrac = (touch.clientY - r.top) / r.height;
   if (state === ST.PLAY && yFrac > 0.62) { duckTouch = touch.identifier; setDuck(true); }
-  else jump();
+  else { jumpTouch = touch.identifier; startJump(); }
 }, { passive: false });
 cv.addEventListener("touchend", e => {
-  for (const touch of e.changedTouches)
+  for (const touch of e.changedTouches) {
     if (touch.identifier === duckTouch) { duckTouch = null; setDuck(false); }
+    if (touch.identifier === jumpTouch) { jumpTouch = null; endJump(); }
+  }
 }, { passive: false });
 cv.addEventListener("mousedown", e => {
   const r = cv.getBoundingClientRect();
   if (state === ST.PLAY && (e.clientY - r.top) / r.height > 0.62) setDuck(true);
-  else jump();
+  else startJump();
 });
-addEventListener("mouseup", () => setDuck(false));
+addEventListener("mouseup", () => { setDuck(false); endJump(); });
 
 // ---------- obstacles ----------
-// kind: buoy (jump), wave (jump big), shark (jump), gull (duck)
+// jumpable: buoy, wave, shark · duck-only: gull
 function spawn() {
   const roll = Math.random();
+  const gullsAllowed = speed >= CFG.GULL_MIN_SPEED;
   let o;
-  if (roll < 0.32)      o = { kind: "buoy",  x: W + 40, w: 34, h: 46, bob: Math.random() * 6 };
-  else if (roll < 0.55) o = { kind: "wave",  x: W + 40, w: 110, h: 74 + Math.random() * 26 };
-  else if (roll < 0.78) o = { kind: "shark", x: W + 40, w: 64, h: 40, extra: 1.6 };
-  else                  o = { kind: "gull",  x: W + 40, w: 52, h: 30, fy: WATER - 64 - Math.random() * 12, flap: Math.random() * 6 };
+  if (gullsAllowed && roll < 0.25)
+    o = { kind: "gull", x: W + 60, w: 56, fy: WATER - 86, flap: Math.random() * 6 };
+  else if (roll < 0.45)
+    o = { kind: "buoy",  x: W + 60, w: 34, bob: Math.random() * 6 };
+  else if (roll < 0.74)
+    o = { kind: "wave",  x: W + 60, w: 110, h: 56 + Math.random() * 14 };
+  else
+    o = { kind: "shark", x: W + 60, w: 64 };
   obstacles.push(o);
-  const gap = 320 + Math.random() * 320;
-  spawnIn = gap / speed;
+
+  // dino gap formula: gap = width*speed + MIN_GAP*coeff, then random up to gap*1.5.
+  // Guarantees reaction + landing room at every speed.
+  const gap = Math.round(o.w * speed * CFG.GAP_COEFF + CFG.MIN_GAP);
+  const maxGap = Math.round(gap * CFG.MAX_GAP_COEFF);
+  nextSpawnX = dist + gap + Math.random() * (maxGap - gap);
 }
 
 function splash(x, y, n) {
@@ -168,10 +204,12 @@ function surferBox() {
   return { x: surfer.x - 18, y: surfer.y - h, w: 38, h: h };
 }
 function obstacleBox(o) {
-  if (o.kind === "buoy")  return { x: o.x - 14, y: WATER - 38, w: 28, h: 38 };
-  if (o.kind === "wave")  return { x: o.x - o.w * 0.28, y: WATER - o.h + 12, w: o.w * 0.5, h: o.h - 12 };
-  if (o.kind === "shark") return { x: o.x - 20, y: WATER - 30, w: 40, h: 30 };
-  return { x: o.x - 20, y: o.fy - 10, w: 40, h: 20 };   // gull
+  if (o.kind === "buoy")  return { x: o.x - 14, y: WATER - 32, w: 28, h: 32 };
+  if (o.kind === "wave")  return { x: o.x - o.w * 0.26, y: WATER - o.h + 12, w: o.w * 0.48, h: o.h - 12 };
+  if (o.kind === "shark") return { x: o.x - 20, y: WATER - 28, w: 40, h: 28 };
+  // gull: tall reach — wings + dive zone. Ducking (32 px) slips under; any jump
+  // arc passes through it, so it can never be jumped. Duck-only by construction.
+  return { x: o.x - 22, y: WATER - 168, w: 44, h: 126 };
 }
 const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
@@ -182,13 +220,18 @@ function update() {
 
   if (state !== ST.PLAY) return;
 
-  speed = Math.min(14, 6 + dist / 2600);
+  // dino ramp: tiny constant acceleration each frame, hard cap
+  speed = Math.min(CFG.MAX_SPEED, speed + CFG.ACCELERATION);
   dist += speed;
-  score = Math.floor(dist / 10);
+
+  const prev = score;
+  score = Math.floor(dist * CFG.SCORE_COEFF);
+  if (score > 0 && score % 100 === 0 && prev % 100 !== 0)
+    flashUntil = performance.now() + CFG.CLEAR_TIME;   // milestone flash, dino-style
 
   // surfer physics
   if (!surfer.onWater) {
-    surfer.vy += 0.62;
+    surfer.vy += CFG.GRAVITY;
     surfer.y += surfer.vy;
     surfer.trickAngle = Math.max(-0.35, Math.min(0.3, surfer.vy * -0.03));
     if (surfer.y >= WATER) {
@@ -197,11 +240,11 @@ function update() {
     }
   }
 
-  // obstacles
-  if (--spawnIn <= 0) spawn();
+  // distance-based spawning
+  if (dist >= nextSpawnX) spawn();
   for (const o of obstacles) {
-    o.x -= speed + (o.extra || 0);
-    if (o.kind === "gull") o.fy += Math.sin((t + o.flap * 10) * 0.1) * 0.7;
+    o.x -= speed;
+    if (o.kind === "gull") o.fy = WATER - 86 + Math.sin((t + o.flap * 10) * 0.1) * 5;
     if (hit(surferBox(), obstacleBox(o))) {
       state = ST.OVER; shake = 14;
       hi = Math.max(hi, score);
@@ -228,9 +271,9 @@ function slattedSun(x, y, r) {
   cx.fillStyle = g;
   cx.save();
   cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.clip();
-  const gaps = [[ -r, r * 0.30 ], [ r * 0.38, 0.16 * r ], [ r * 0.60, 0.12 * r ], [ r * 0.76, 0.09 * r ], [ r * 0.88, 0.06 * r ]];
   cx.fillRect(x - r, y - r, 2 * r, r * 1.28);
-  for (const [off, hgt] of gaps.slice(1)) cx.fillRect(x - r, y + off, 2 * r, hgt);
+  const gaps = [[ 0.38, 0.16 ], [ 0.60, 0.12 ], [ 0.76, 0.09 ], [ 0.88, 0.06 ]];
+  for (const [off, hgt] of gaps) cx.fillRect(x - r, y + off * r, 2 * r, hgt * r);
   cx.restore();
 }
 
@@ -266,16 +309,15 @@ function drawSurfer() {
   cx.fillStyle = P.ink;
 
   if (duckNow) {
-    // crouched: knees bent, body low
-    cx.beginPath(); cx.moveTo(-8, -2); cx.lineTo(-4, -12); cx.lineTo(4, -12); cx.lineTo(9, -2); cx.stroke(); // legs
-    cx.beginPath(); cx.moveTo(0, -12); cx.lineTo(8, -22); cx.stroke();                                       // torso
-    cx.beginPath(); cx.arc(11, -28, 6.5, 0, Math.PI * 2); cx.fill();                                          // head
-    cx.beginPath(); cx.moveTo(4, -18); cx.lineTo(16, -14); cx.stroke();                                       // arm
+    cx.beginPath(); cx.moveTo(-8, -2); cx.lineTo(-4, -12); cx.lineTo(4, -12); cx.lineTo(9, -2); cx.stroke();
+    cx.beginPath(); cx.moveTo(0, -12); cx.lineTo(8, -22); cx.stroke();
+    cx.beginPath(); cx.arc(11, -28, 6.5, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.moveTo(4, -18); cx.lineTo(16, -14); cx.stroke();
   } else {
-    cx.beginPath(); cx.moveTo(-9, -2); cx.lineTo(-5, -20); cx.stroke();   // back leg
-    cx.beginPath(); cx.moveTo(9, -2); cx.lineTo(5, -20); cx.stroke();     // front leg
-    cx.beginPath(); cx.moveTo(0, -20); cx.lineTo(2, -40); cx.stroke();    // torso
-    cx.beginPath(); cx.arc(3, -48, 7, 0, Math.PI * 2); cx.fill();         // head
+    cx.beginPath(); cx.moveTo(-9, -2); cx.lineTo(-5, -20); cx.stroke();
+    cx.beginPath(); cx.moveTo(9, -2); cx.lineTo(5, -20); cx.stroke();
+    cx.beginPath(); cx.moveTo(0, -20); cx.lineTo(2, -40); cx.stroke();
+    cx.beginPath(); cx.arc(3, -48, 7, 0, Math.PI * 2); cx.fill();
     const armSwing = b.onWater ? Math.sin(t * 0.1) * 4 : -8;
     cx.beginPath(); cx.moveTo(1, -34); cx.lineTo(-14, -38 + armSwing); cx.stroke();
     cx.beginPath(); cx.moveTo(1, -34); cx.lineTo(16, -30 - armSwing); cx.stroke();
@@ -285,14 +327,17 @@ function drawSurfer() {
 
 function drawObstacle(o) {
   if (o.kind === "buoy") {
-    const y = WATER - 16 + Math.sin((t + o.bob * 10) * 0.08) * 3;
+    // hull half-submerged: sits IN the water, gently rocking with it
+    const y = WATER + 2 + Math.sin((t + o.bob * 10) * 0.08) * 1.5;
     cx.fillStyle = P.pink;
-    cx.beginPath(); cx.arc(o.x, y, 16, Math.PI, 0); cx.fill();
+    cx.beginPath(); cx.arc(o.x, y, 15, Math.PI, 0); cx.fill();
     cx.fillStyle = P.cream;
-    cx.fillRect(o.x - 16, y - 4, 32, 5);
+    cx.fillRect(o.x - 15, y - 9, 30, 5);
     cx.fillStyle = P.pink;
-    cx.fillRect(o.x - 3, y - 30, 6, 16);
-    cx.beginPath(); cx.arc(o.x, y - 32, 4, 0, Math.PI * 2); cx.fill();
+    cx.fillRect(o.x - 2.5, y - 27, 5, 14);
+    cx.beginPath(); cx.arc(o.x, y - 29, 4, 0, Math.PI * 2); cx.fill();
+    cx.strokeStyle = "rgba(255,255,255,0.6)"; cx.lineWidth = 2;   // waterline ripple
+    cx.beginPath(); cx.moveTo(o.x - 22, y + 1); cx.lineTo(o.x + 22, y + 1); cx.stroke();
   }
   else if (o.kind === "wave") {
     cx.fillStyle = P.aqua;
@@ -302,7 +347,7 @@ function drawObstacle(o) {
     cx.quadraticCurveTo(o.x + o.w * 0.02, WATER - o.h * 0.55, o.x + o.w * 0.26, WATER - o.h * 0.42);
     cx.quadraticCurveTo(o.x + o.w * 0.5, WATER - o.h * 0.2, o.x + o.w / 2, WATER + 6);
     cx.closePath(); cx.fill();
-    cx.fillStyle = P.cream;                                   // crest foam
+    cx.fillStyle = P.cream;
     cx.beginPath(); cx.arc(o.x + o.w * 0.18, WATER - o.h, 7, 0, Math.PI * 2); cx.fill();
     cx.beginPath(); cx.arc(o.x + o.w * 0.07, WATER - o.h * 0.94, 5, 0, Math.PI * 2); cx.fill();
   }
@@ -310,23 +355,28 @@ function drawObstacle(o) {
     cx.fillStyle = P.shark;
     cx.beginPath();
     cx.moveTo(o.x - 22, WATER + 2);
-    cx.quadraticCurveTo(o.x - 4, WATER - 34, o.x + 10, WATER - 28);
-    cx.quadraticCurveTo(o.x + 6, WATER - 12, o.x + 22, WATER + 2);
+    cx.quadraticCurveTo(o.x - 4, WATER - 32, o.x + 10, WATER - 26);
+    cx.quadraticCurveTo(o.x + 6, WATER - 10, o.x + 22, WATER + 2);
     cx.closePath(); cx.fill();
-    cx.strokeStyle = "rgba(255,255,255,0.7)"; cx.lineWidth = 2;  // wake line
+    cx.strokeStyle = "rgba(255,255,255,0.7)"; cx.lineWidth = 2;
     cx.beginPath(); cx.moveTo(o.x + 22, WATER + 3); cx.lineTo(o.x + 44, WATER + 3); cx.stroke();
   }
-  else { // gull
+  else { // gull: swooping low, wings raking a tall stripe of air — duck under it
     const y = o.fy;
-    const flap = Math.sin((t + o.flap * 10) * 0.25) * 8;
-    cx.strokeStyle = P.gull; cx.lineWidth = 4; cx.lineCap = "round";
-    cx.beginPath();
-    cx.moveTo(o.x - 18, y - flap);
-    cx.quadraticCurveTo(o.x - 8, y + 4, o.x, y);
-    cx.quadraticCurveTo(o.x + 8, y + 4, o.x + 18, y - flap);
+    const flap = Math.sin((t + o.flap * 10) * 0.25);
+    cx.strokeStyle = P.gull; cx.lineWidth = 5; cx.lineCap = "round";
+    cx.beginPath();                                   // big upper wings
+    cx.moveTo(o.x - 22, y - 26 - flap * 14);
+    cx.quadraticCurveTo(o.x - 9, y + 5, o.x, y);
+    cx.quadraticCurveTo(o.x + 9, y + 5, o.x + 22, y - 26 - flap * 14);
     cx.stroke();
-    cx.fillStyle = P.pink;                                     // beak dot
-    cx.beginPath(); cx.arc(o.x, y + 1, 2.5, 0, Math.PI * 2); cx.fill();
+    cx.lineWidth = 3;                                 // trailing dive streaks
+    cx.globalAlpha = 0.35;
+    cx.beginPath(); cx.moveTo(o.x + 14, y - 44); cx.lineTo(o.x + 30, y - 64); cx.stroke();
+    cx.beginPath(); cx.moveTo(o.x - 2, y - 52); cx.lineTo(o.x + 10, y - 74); cx.stroke();
+    cx.globalAlpha = 1;
+    cx.fillStyle = P.pink;
+    cx.beginPath(); cx.arc(o.x, y + 1, 3, 0, Math.PI * 2); cx.fill();
   }
 }
 
@@ -336,7 +386,9 @@ function text(str, x, y, size, color, align = "center", spacing = 0) {
   cx.textAlign = align;
   if (spacing) {
     const total = [...str].reduce((acc, ch) => acc + cx.measureText(ch).width + spacing, -spacing);
-    let px = align === "center" ? x - total / 2 : x;
+    let px = x;
+    if (align === "center") px = x - total / 2;
+    if (align === "right")  px = x - total;
     cx.textAlign = "left";
     for (const ch of str) { cx.fillText(ch, px, y); px += cx.measureText(ch).width + spacing; }
   } else cx.fillText(str, x, y);
@@ -384,10 +436,12 @@ function render() {
 
   if (state !== ST.START) drawSurfer();
 
-  // HUD
+  // HUD — dino-style: "HI 00231  00045" tucked in the top-right, flashing on milestones
   if (state === ST.PLAY) {
-    text(String(score).padStart(5, "0"), W - 28, 44, 22, P.ink, "right", 4);
-    if (hi) text("HI " + String(hi).padStart(5, "0"), W - 28, 70, 13, "rgba(37,34,58,0.45)", "right", 3);
+    const flashing = performance.now() < flashUntil;
+    const show = flashing ? (Math.floor(t / 15) % 2 === 0) : true;
+    if (show) text(String(score).padStart(5, "0"), W - 30, 42, 17, P.ink, "right", 3);
+    if (hi)   text("HI " + String(hi).padStart(5, "0"), W - 124, 42, 17, "rgba(37,34,58,0.4)", "right", 3);
   }
 
   if (state === ST.START) {
@@ -395,7 +449,6 @@ function render() {
     text("JUMP THE BUOYS, WAVES & SHARKS — DUCK THE GULLS", W / 2, H / 2 - 8, 13, "rgba(37,34,58,0.6)", "center", 3);
     if (Math.floor(t / 30) % 2 === 0)
       text("PRESS SPACE OR TAP TO START", W / 2, H / 2 + 40, 16, P.pink, "center", 4);
-    // idle surfer bobbing on the left
     surfer.y = WATER; drawSurfer();
   }
 
