@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>SWELLRUNNER — tjark-neumann</title>
+<style>
+  :root {
+    --ink: #25223A;
+    --pink: #FF6F91;
+    --aqua: #2FB5A6;
+    --cream: #FFF6EA;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: #10162E;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+  #frame {
+    position: relative;
+    width: min(96vw, 960px);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    border-radius: 18px;
+    box-shadow: 0 24px 80px rgba(255, 111, 145, 0.18), 0 4px 18px rgba(0,0,0,0.45);
+    cursor: pointer;
+  }
+  #hint {
+    text-align: center;
+    color: #8B86A8;
+    font-size: 12px;
+    letter-spacing: 3px;
+    margin-top: 14px;
+    text-transform: uppercase;
+  }
+  #hint b { color: var(--pink); font-weight: 600; }
+  #back {
+    position: fixed; top: 18px; left: 20px;
+    color: #8B86A8; text-decoration: none;
+    font-size: 12px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  #back:hover { color: var(--pink); }
+</style>
+</head>
+<body>
+<a id="back" href="https://github.com/tjark-neumann">&larr; github.com/tjark-neumann</a>
+<div id="frame">
+  <canvas id="c" width="960" height="440"></canvas>
+  <div id="hint"><b>space / tap</b> jump &nbsp;·&nbsp; <b>&darr; / hold lower half</b> duck</div>
+</div>
+
+<script>
+"use strict";
+const cv = document.getElementById("c");
+const cx = cv.getContext("2d");
+const W = cv.width, H = cv.height;
+const WATER = H - 96;                 // waterline y
+
+// ---------- palette ----------
+const P = {
+  ink: "#25223A",
+  pink: "#FF6F91",
+  pinkSoft: "#FFA3B8",
+  aqua: "#2FB5A6",
+  aquaDeep: "#1E8F84",
+  cream: "#FFF6EA",
+  skyTop: "#FFF3E4", skyMid: "#FFD9BC", skyLow: "#FFC3A8",
+  sunTop: "#FFB36B", sunLow: "#FF6F91",
+  w1: "#8FE0D5", w2: "#5CC9BC", w3: "#39B2A5",
+  shark: "#5A6480",
+  gull: "#3A3654"
+};
+
+// ---------- state ----------
+const ST = { START: 0, PLAY: 1, OVER: 2 };
+let state = ST.START;
+let t = 0;                            // global ticks
+let speed, dist, score, hi = 0, shake = 0;
+try { hi = +localStorage.getItem("swellrunner-hi") || 0; } catch (e) {}
+
+const surfer = { x: 150, y: WATER, vy: 0, w: 46, h: 58, duck: false, onWater: true, trickAngle: 0 };
+let obstacles = [], foam = [], clouds = [];
+let spawnIn = 0;
+
+function reset() {
+  speed = 6; dist = 0; score = 0; shake = 0;
+  surfer.y = WATER; surfer.vy = 0; surfer.duck = false; surfer.onWater = true;
+  obstacles = []; foam = []; spawnIn = 90;
+}
+
+for (let i = 0; i < 5; i++) {
+  clouds.push({ x: Math.random() * W, y: 40 + Math.random() * 110, s: 0.6 + Math.random() * 0.9 });
+}
+
+// ---------- input ----------
+function jump() {
+  if (state === ST.START) { state = ST.PLAY; reset(); return; }
+  if (state === ST.OVER)  { state = ST.PLAY; reset(); return; }
+  if (surfer.onWater) {
+    surfer.vy = -13.2;
+    surfer.onWater = false;
+    surfer.duck = false;
+    splash(surfer.x, WATER, 8);
+  }
+}
+function setDuck(on) {
+  if (state !== ST.PLAY) return;
+  surfer.duck = on;
+  if (on && !surfer.onWater) surfer.vy += 4.5;   // fast-drop like the dino
+}
+
+addEventListener("keydown", e => {
+  if (e.repeat) return;
+  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); jump(); }
+  if (e.code === "ArrowDown") { e.preventDefault(); setDuck(true); }
+});
+addEventListener("keyup", e => { if (e.code === "ArrowDown") setDuck(false); });
+
+let duckTouch = null;
+cv.addEventListener("touchstart", e => {
+  e.preventDefault();
+  const r = cv.getBoundingClientRect();
+  const touch = e.changedTouches[0];
+  const yFrac = (touch.clientY - r.top) / r.height;
+  if (state === ST.PLAY && yFrac > 0.62) { duckTouch = touch.identifier; setDuck(true); }
+  else jump();
+}, { passive: false });
+cv.addEventListener("touchend", e => {
+  for (const touch of e.changedTouches)
+    if (touch.identifier === duckTouch) { duckTouch = null; setDuck(false); }
+}, { passive: false });
+cv.addEventListener("mousedown", e => {
+  const r = cv.getBoundingClientRect();
+  if (state === ST.PLAY && (e.clientY - r.top) / r.height > 0.62) setDuck(true);
+  else jump();
+});
+addEventListener("mouseup", () => setDuck(false));
+
+// ---------- obstacles ----------
+// kind: buoy (jump), wave (jump big), shark (jump), gull (duck)
+function spawn() {
+  const roll = Math.random();
+  let o;
+  if (roll < 0.32)      o = { kind: "buoy",  x: W + 40, w: 34, h: 46, bob: Math.random() * 6 };
+  else if (roll < 0.55) o = { kind: "wave",  x: W + 40, w: 110, h: 74 + Math.random() * 26 };
+  else if (roll < 0.78) o = { kind: "shark", x: W + 40, w: 64, h: 40, extra: 1.6 };
+  else                  o = { kind: "gull",  x: W + 40, w: 52, h: 30, fy: WATER - 64 - Math.random() * 12, flap: Math.random() * 6 };
+  obstacles.push(o);
+  const gap = 320 + Math.random() * 320;
+  spawnIn = gap / speed;
+}
+
+function splash(x, y, n) {
+  for (let i = 0; i < n; i++)
+    foam.push({ x: x + (Math.random() - 0.5) * 30, y, vx: (Math.random() - 0.5) * 3, vy: -2 - Math.random() * 3, life: 28 });
+}
+
+// ---------- collision ----------
+function surferBox() {
+  const duckH = 32;
+  const h = surfer.duck && surfer.onWater ? duckH : surfer.h;
+  return { x: surfer.x - 18, y: surfer.y - h, w: 38, h: h };
+}
+function obstacleBox(o) {
+  if (o.kind === "buoy")  return { x: o.x - 14, y: WATER - 38, w: 28, h: 38 };
+  if (o.kind === "wave")  return { x: o.x - o.w * 0.28, y: WATER - o.h + 12, w: o.w * 0.5, h: o.h - 12 };
+  if (o.kind === "shark") return { x: o.x - 20, y: WATER - 30, w: 40, h: 30 };
+  return { x: o.x - 20, y: o.fy - 10, w: 40, h: 20 };   // gull
+}
+const hit = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// ---------- update ----------
+function update() {
+  t++;
+  for (const c of clouds) { c.x -= c.s * 0.4; if (c.x < -120) c.x = W + 120; }
+
+  if (state !== ST.PLAY) return;
+
+  speed = Math.min(14, 6 + dist / 2600);
+  dist += speed;
+  score = Math.floor(dist / 10);
+
+  // surfer physics
+  if (!surfer.onWater) {
+    surfer.vy += 0.62;
+    surfer.y += surfer.vy;
+    surfer.trickAngle = Math.max(-0.35, Math.min(0.3, surfer.vy * -0.03));
+    if (surfer.y >= WATER) {
+      surfer.y = WATER; surfer.vy = 0; surfer.onWater = true; surfer.trickAngle = 0;
+      splash(surfer.x, WATER, 10);
+    }
+  }
+
+  // obstacles
+  if (--spawnIn <= 0) spawn();
+  for (const o of obstacles) {
+    o.x -= speed + (o.extra || 0);
+    if (o.kind === "gull") o.fy += Math.sin((t + o.flap * 10) * 0.1) * 0.7;
+    if (hit(surferBox(), obstacleBox(o))) {
+      state = ST.OVER; shake = 14;
+      hi = Math.max(hi, score);
+      try { localStorage.setItem("swellrunner-hi", hi); } catch (e) {}
+      splash(surfer.x, surfer.y, 16);
+    }
+  }
+  obstacles = obstacles.filter(o => o.x > -160);
+
+  // wake foam while riding
+  if (surfer.onWater && t % 3 === 0)
+    foam.push({ x: surfer.x - 22, y: WATER + 4, vx: -speed * 0.5, vy: -0.6 - Math.random(), life: 22 });
+
+  for (const f of foam) { f.x += f.vx; f.y += f.vy; f.vy += 0.12; f.life--; }
+  foam = foam.filter(f => f.life > 0);
+
+  if (shake > 0) shake *= 0.85;
+}
+
+// ---------- draw helpers ----------
+function slattedSun(x, y, r) {
+  const g = cx.createLinearGradient(0, y - r, 0, y + r);
+  g.addColorStop(0, P.sunTop); g.addColorStop(1, P.sunLow);
+  cx.fillStyle = g;
+  cx.save();
+  cx.beginPath(); cx.arc(x, y, r, 0, Math.PI * 2); cx.clip();
+  const gaps = [[ -r, r * 0.30 ], [ r * 0.38, 0.16 * r ], [ r * 0.60, 0.12 * r ], [ r * 0.76, 0.09 * r ], [ r * 0.88, 0.06 * r ]];
+  cx.fillRect(x - r, y - r, 2 * r, r * 1.28);
+  for (const [off, hgt] of gaps.slice(1)) cx.fillRect(x - r, y + off, 2 * r, hgt);
+  cx.restore();
+}
+
+function waveBand(yBase, amp, wl, phase, color, alpha) {
+  cx.globalAlpha = alpha;
+  cx.fillStyle = color;
+  cx.beginPath();
+  cx.moveTo(0, H);
+  for (let x = 0; x <= W; x += 8)
+    cx.lineTo(x, yBase + Math.sin((x + phase) / wl) * amp);
+  cx.lineTo(W, H);
+  cx.closePath();
+  cx.fill();
+  cx.globalAlpha = 1;
+}
+
+function drawSurfer() {
+  const b = surfer;
+  cx.save();
+  cx.translate(b.x, b.y + Math.sin(t * 0.15) * (b.onWater ? 1.6 : 0));
+  cx.rotate(b.trickAngle + (b.onWater ? Math.sin(t * 0.1) * 0.04 : 0));
+
+  // board
+  cx.fillStyle = P.cream;
+  cx.strokeStyle = P.pink; cx.lineWidth = 3;
+  cx.beginPath(); cx.ellipse(0, 2, 34, 7, -0.06, 0, Math.PI * 2);
+  cx.fill(); cx.stroke();
+  cx.strokeStyle = P.pinkSoft; cx.lineWidth = 2;
+  cx.beginPath(); cx.moveTo(-24, 2); cx.lineTo(24, 2); cx.stroke();
+
+  const duckNow = b.duck && b.onWater;
+  cx.strokeStyle = P.ink; cx.lineWidth = 4.5; cx.lineCap = "round";
+  cx.fillStyle = P.ink;
+
+  if (duckNow) {
+    // crouched: knees bent, body low
+    cx.beginPath(); cx.moveTo(-8, -2); cx.lineTo(-4, -12); cx.lineTo(4, -12); cx.lineTo(9, -2); cx.stroke(); // legs
+    cx.beginPath(); cx.moveTo(0, -12); cx.lineTo(8, -22); cx.stroke();                                       // torso
+    cx.beginPath(); cx.arc(11, -28, 6.5, 0, Math.PI * 2); cx.fill();                                          // head
+    cx.beginPath(); cx.moveTo(4, -18); cx.lineTo(16, -14); cx.stroke();                                       // arm
+  } else {
+    cx.beginPath(); cx.moveTo(-9, -2); cx.lineTo(-5, -20); cx.stroke();   // back leg
+    cx.beginPath(); cx.moveTo(9, -2); cx.lineTo(5, -20); cx.stroke();     // front leg
+    cx.beginPath(); cx.moveTo(0, -20); cx.lineTo(2, -40); cx.stroke();    // torso
+    cx.beginPath(); cx.arc(3, -48, 7, 0, Math.PI * 2); cx.fill();         // head
+    const armSwing = b.onWater ? Math.sin(t * 0.1) * 4 : -8;
+    cx.beginPath(); cx.moveTo(1, -34); cx.lineTo(-14, -38 + armSwing); cx.stroke();
+    cx.beginPath(); cx.moveTo(1, -34); cx.lineTo(16, -30 - armSwing); cx.stroke();
+  }
+  cx.restore();
+}
+
+function drawObstacle(o) {
+  if (o.kind === "buoy") {
+    const y = WATER - 16 + Math.sin((t + o.bob * 10) * 0.08) * 3;
+    cx.fillStyle = P.pink;
+    cx.beginPath(); cx.arc(o.x, y, 16, Math.PI, 0); cx.fill();
+    cx.fillStyle = P.cream;
+    cx.fillRect(o.x - 16, y - 4, 32, 5);
+    cx.fillStyle = P.pink;
+    cx.fillRect(o.x - 3, y - 30, 6, 16);
+    cx.beginPath(); cx.arc(o.x, y - 32, 4, 0, Math.PI * 2); cx.fill();
+  }
+  else if (o.kind === "wave") {
+    cx.fillStyle = P.aqua;
+    cx.beginPath();
+    cx.moveTo(o.x - o.w / 2, WATER + 6);
+    cx.quadraticCurveTo(o.x - o.w * 0.1, WATER - o.h * 1.05, o.x + o.w * 0.18, WATER - o.h);
+    cx.quadraticCurveTo(o.x + o.w * 0.02, WATER - o.h * 0.55, o.x + o.w * 0.26, WATER - o.h * 0.42);
+    cx.quadraticCurveTo(o.x + o.w * 0.5, WATER - o.h * 0.2, o.x + o.w / 2, WATER + 6);
+    cx.closePath(); cx.fill();
+    cx.fillStyle = P.cream;                                   // crest foam
+    cx.beginPath(); cx.arc(o.x + o.w * 0.18, WATER - o.h, 7, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(o.x + o.w * 0.07, WATER - o.h * 0.94, 5, 0, Math.PI * 2); cx.fill();
+  }
+  else if (o.kind === "shark") {
+    cx.fillStyle = P.shark;
+    cx.beginPath();
+    cx.moveTo(o.x - 22, WATER + 2);
+    cx.quadraticCurveTo(o.x - 4, WATER - 34, o.x + 10, WATER - 28);
+    cx.quadraticCurveTo(o.x + 6, WATER - 12, o.x + 22, WATER + 2);
+    cx.closePath(); cx.fill();
+    cx.strokeStyle = "rgba(255,255,255,0.7)"; cx.lineWidth = 2;  // wake line
+    cx.beginPath(); cx.moveTo(o.x + 22, WATER + 3); cx.lineTo(o.x + 44, WATER + 3); cx.stroke();
+  }
+  else { // gull
+    const y = o.fy;
+    const flap = Math.sin((t + o.flap * 10) * 0.25) * 8;
+    cx.strokeStyle = P.gull; cx.lineWidth = 4; cx.lineCap = "round";
+    cx.beginPath();
+    cx.moveTo(o.x - 18, y - flap);
+    cx.quadraticCurveTo(o.x - 8, y + 4, o.x, y);
+    cx.quadraticCurveTo(o.x + 8, y + 4, o.x + 18, y - flap);
+    cx.stroke();
+    cx.fillStyle = P.pink;                                     // beak dot
+    cx.beginPath(); cx.arc(o.x, y + 1, 2.5, 0, Math.PI * 2); cx.fill();
+  }
+}
+
+function text(str, x, y, size, color, align = "center", spacing = 0) {
+  cx.fillStyle = color;
+  cx.font = `700 ${size}px "Helvetica Neue", Helvetica, Arial, sans-serif`;
+  cx.textAlign = align;
+  if (spacing) {
+    const total = [...str].reduce((acc, ch) => acc + cx.measureText(ch).width + spacing, -spacing);
+    let px = align === "center" ? x - total / 2 : x;
+    cx.textAlign = "left";
+    for (const ch of str) { cx.fillText(ch, px, y); px += cx.measureText(ch).width + spacing; }
+  } else cx.fillText(str, x, y);
+}
+
+// ---------- render ----------
+function render() {
+  cx.save();
+  if (shake > 0.5) cx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+
+  // sky
+  const sky = cx.createLinearGradient(0, 0, 0, WATER);
+  sky.addColorStop(0, P.skyTop); sky.addColorStop(0.6, P.skyMid); sky.addColorStop(1, P.skyLow);
+  cx.fillStyle = sky;
+  cx.fillRect(-20, -20, W + 40, H + 40);
+
+  slattedSun(W - 190, 128, 92);
+
+  cx.fillStyle = "rgba(255,255,255,0.65)";
+  for (const c of clouds) {
+    cx.beginPath();
+    cx.ellipse(c.x, c.y, 34 * c.s, 11 * c.s, 0, 0, Math.PI * 2);
+    cx.ellipse(c.x + 22 * c.s, c.y + 4, 22 * c.s, 9 * c.s, 0, 0, Math.PI * 2);
+    cx.fill();
+  }
+
+  // sea
+  const sea = cx.createLinearGradient(0, WATER, 0, H);
+  sea.addColorStop(0, P.w2); sea.addColorStop(1, P.w3);
+  cx.fillStyle = sea;
+  cx.fillRect(-20, WATER, W + 40, H - WATER + 20);
+  waveBand(WATER + 2, 4, 46, t * speedSafe() * 0.9, P.w1, 0.85);
+  waveBand(WATER + 22, 5, 64, -t * speedSafe() * 0.6, P.w1, 0.35);
+  waveBand(WATER + 44, 6, 80, t * speedSafe() * 0.4, P.cream, 0.12);
+
+  for (const o of obstacles) drawObstacle(o);
+
+  // foam
+  cx.fillStyle = P.cream;
+  for (const f of foam) {
+    cx.globalAlpha = f.life / 28;
+    cx.beginPath(); cx.arc(f.x, f.y, 2.6, 0, Math.PI * 2); cx.fill();
+  }
+  cx.globalAlpha = 1;
+
+  if (state !== ST.START) drawSurfer();
+
+  // HUD
+  if (state === ST.PLAY) {
+    text(String(score).padStart(5, "0"), W - 28, 44, 22, P.ink, "right", 4);
+    if (hi) text("HI " + String(hi).padStart(5, "0"), W - 28, 70, 13, "rgba(37,34,58,0.45)", "right", 3);
+  }
+
+  if (state === ST.START) {
+    text("SWELLRUNNER", W / 2, H / 2 - 46, 44, P.ink, "center", 10);
+    text("JUMP THE BUOYS, WAVES & SHARKS — DUCK THE GULLS", W / 2, H / 2 - 8, 13, "rgba(37,34,58,0.6)", "center", 3);
+    if (Math.floor(t / 30) % 2 === 0)
+      text("PRESS SPACE OR TAP TO START", W / 2, H / 2 + 40, 16, P.pink, "center", 4);
+    // idle surfer bobbing on the left
+    surfer.y = WATER; drawSurfer();
+  }
+
+  if (state === ST.OVER) {
+    cx.fillStyle = "rgba(255,246,234,0.82)";
+    cx.fillRect(0, 0, W, H);
+    text("WIPEOUT", W / 2, H / 2 - 40, 40, P.ink, "center", 12);
+    text(String(score).padStart(5, "0"), W / 2, H / 2 + 2, 24, P.pink, "center", 6);
+    if (score >= hi && score > 0)
+      text("NEW HIGH SCORE", W / 2, H / 2 + 28, 13, P.aqua, "center", 4);
+    else if (hi)
+      text("HI " + String(hi).padStart(5, "0"), W / 2, H / 2 + 28, 13, "rgba(37,34,58,0.5)", "center", 4);
+    if (Math.floor(t / 30) % 2 === 0)
+      text("SPACE OR TAP TO PADDLE BACK OUT", W / 2, H / 2 + 66, 14, P.ink, "center", 3);
+  }
+
+  cx.restore();
+}
+function speedSafe() { return state === ST.PLAY ? speed : 3; }
+
+// ---------- loop ----------
+reset();
+state = ST.START;
+(function loop() {
+  update();
+  render();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
