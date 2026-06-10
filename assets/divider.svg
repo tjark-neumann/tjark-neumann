@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="40" viewBox="0 0 1200 40" role="img" aria-label="wave divider">
+  <defs>
+    <style>
+      #w { animation: drift 12s linear infinite; }
+      @keyframes drift { from { transform: translateX(0); } to { transform: translateX(-300px); } }
+      @media (prefers-reduced-motion: reduce) { #w { animation: none; } }
+    </style>
+  </defs>
+  <g id="w">
+    <path d="M0,20 C37.5,8 75,8 112.5,20 C150,32 187.5,32 225,20 C262.5,8 300,8 337.5,20 C375,32 412.5,32 450,20 C487.5,8 525,8 562.5,20 C600,32 637.5,32 675,20 C712.5,8 750,8 787.5,20 C825,32 862.5,32 900,20 C937.5,8 975,8 1012.5,20 C1050,32 1087.5,32 1125,20 C1162.5,8 1200,8 1237.5,20 C1275,32 1312.5,32 1350,20 C1387.5,8 1425,8 1462.5,20"
+          fill="none" stroke="#2FB5A6" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+  </g>
+</svg>
