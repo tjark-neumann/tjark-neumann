@@ -9,7 +9,7 @@
 
 <br>
 
-**I'm excited to share my projects with you here. I'm always discovering and trying new things, and I'm still learning.**
+**Hey, I'm Tjark and I'm excited to share my projects with you here.**
 
 <img src="assets/ticker.svg" alt="data science · ai · pytorch · jupyter · python · cloudflare · latex" width="100%">
 
@@ -1592,6 +1592,12 @@ endsolid surfboard
 <br>
 
 <div align="center">
+
+<a href="https://tjark-neumann.github.io/tjark-neumann/game/">
+  <img src="assets/press-start.svg" alt="SWELLRUNNER — press start to play" width="100%">
+</a>
+
+<br><br>
 
 <img src="assets/divider.svg" alt="" width="60%">
 
