@@ -13,37 +13,7 @@
 
 <img src="assets/ticker.svg" alt="data science · ai · pytorch · jupyter · python · cloudflare · latex" width="100%">
 
-<br><br>
-
-Data science & AI.
-
-<kbd>&nbsp;PyTorch&nbsp;</kbd>&nbsp;<kbd>&nbsp;Jupyter&nbsp;</kbd>&nbsp;<kbd>&nbsp;Python&nbsp;</kbd>&nbsp;<kbd>&nbsp;Cloudflare&nbsp;</kbd>&nbsp;<kbd>&nbsp;LaTeX&nbsp;</kbd>
-
 <br>
-
-<img src="assets/divider.svg" alt="" width="60%">
-
-</div>
-
-```mermaid
-%%{init: {
-  "theme": "base",
-  "themeVariables": {
-    "primaryColor": "#FFF1E0",
-    "primaryTextColor": "#25223A",
-    "primaryBorderColor": "#FF6F91",
-    "lineColor": "#2FB5A6",
-    "fontFamily": "Helvetica Neue, Helvetica, Arial, sans-serif",
-    "fontSize": "15px"
-  }
-}}%%
-flowchart LR
-    A(["🌊 question"]) --> B["📓 notebook"]
-    B --> C["🧠 model"]
-    C --> D["📊 evaluate"]
-    D -->|"not yet"| B
-    D -->|"holds up"| E(["🏝️ ship"])
-```
 
 <div align="center"><img src="assets/divider.svg" alt="" width="60%"></div>
 
