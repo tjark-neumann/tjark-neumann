@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="250" viewBox="0 0 1200 250" role="img" aria-label="Swellrunner — press start to play">
+  <defs>
+    <linearGradient id="panel" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFF3E4"/>
+      <stop offset="0.62" stop-color="#FFD9BC"/>
+      <stop offset="1" stop-color="#FFC3A8"/>
+    </linearGradient>
+    <linearGradient id="psun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFB36B"/>
+      <stop offset="1" stop-color="#FF6F91"/>
+    </linearGradient>
+    <clipPath id="screen"><rect x="20" y="14" width="1160" height="222" rx="22"/></clipPath>
+    <clipPath id="psunSlats">
+      <rect x="950" y="40" width="180" height="52"/>
+      <rect x="950" y="98"  width="180" height="14"/>
+      <rect x="950" y="118" width="180" height="10"/>
+      <rect x="950" y="134" width="180" height="7"/>
+      <rect x="950" y="147" width="180" height="5"/>
+    </clipPath>
+    <style>
+      .title { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 800; letter-spacing: 12px; fill: #25223A; }
+      .start { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: 6px;  fill: #FF6F91; }
+      .keys  { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 600; letter-spacing: 4px;  fill: #8B7F9E; }
+      #blink { animation: blink 1.4s steps(2, jump-none) infinite; }
+      #pwave { animation: pdrift 11s linear infinite; }
+      #fin   { animation: cross 13s linear infinite; }
+      #pgullW { animation: flap 0.7s ease-in-out infinite alternate; transform-origin: 0 0; }
+      #pgull { animation: glide 17s linear infinite; }
+      #pboard { animation: pbob 4s ease-in-out infinite; }
+      @keyframes blink  { 0%, 100% { opacity: 1; } 50% { opacity: 0.15; } }
+      @keyframes pdrift { from { transform: translateX(0); } to { transform: translateX(-300px); } }
+      @keyframes cross  { from { transform: translateX(-80px); } to { transform: translateX(1280px); } }
+      @keyframes glide  { from { transform: translateX(1280px); } to { transform: translateX(-120px); } }
+      @keyframes flap   { from { transform: scaleY(0.55); } to { transform: scaleY(1.25); } }
+      @keyframes pbob   { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-5px) rotate(2deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        #blink, #pwave, #fin, #pgull, #pgullW, #pboard { animation: none; }
+      }
+    </style>
+  </defs>
+
+  <!-- screen panel -->
+  <rect x="20" y="14" width="1160" height="222" rx="22" fill="url(#panel)" stroke="#FF6F91" stroke-width="2" stroke-opacity="0.35"/>
+
+  <g clip-path="url(#screen)">
+    <!-- sun -->
+    <circle cx="1040" cy="106" r="86" fill="url(#psun)" clip-path="url(#psunSlats)"/>
+
+    <!-- gull gliding across, flapping -->
+    <g id="pgull">
+      <g transform="translate(0,52)">
+        <g id="pgullW">
+          <path d="M-16,0 Q-7,7 0,2 Q7,7 16,0" fill="none" stroke="#3A3654" stroke-width="3.5" stroke-linecap="round"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- title + start -->
+    <text class="title" x="92" y="98" font-size="40">SWELLRUNNER</text>
+    <text class="keys"  x="96" y="130" font-size="12">JUMP THE BUOYS, WAVES &amp; SHARKS — DUCK THE GULLS</text>
+    <g id="blink">
+      <path d="M96,152 l14,9 -14,9 Z" fill="#FF6F91"/>
+      <text class="start" x="122" y="169" font-size="19">PRESS START</text>
+    </g>
+
+    <!-- shark fin crossing the water -->
+    <g id="fin">
+      <path d="M0,196 Q10,172 18,178 Q15,188 26,196 Z" fill="#5A6480"/>
+      <line x1="26" y1="197" x2="52" y2="197" stroke="#FFF6EA" stroke-width="2" opacity="0.7"/>
+    </g>
+
+    <!-- surfer waiting on the wave -->
+    <g id="pboard">
+      <g transform="translate(760,193)">
+        <ellipse cx="0" cy="0" rx="30" ry="6" fill="#FFF6EA" stroke="#FF6F91" stroke-width="2.5"/>
+        <g stroke="#25223A" stroke-width="4" stroke-linecap="round" fill="#25223A">
+          <line x1="-7" y1="-2" x2="-4" y2="-16"/>
+          <line x1="7" y1="-2" x2="4" y2="-16"/>
+          <line x1="0" y1="-16" x2="1" y2="-32"/>
+          <circle cx="2" cy="-39" r="6" stroke="none"/>
+          <line x1="0" y1="-27" x2="-12" y2="-31"/>
+          <line x1="0" y1="-27" x2="13" y2="-24"/>
+        </g>
+      </g>
+    </g>
+
+    <!-- drifting water band: path tiles every 300px -->
+    <g id="pwave">
+      <path fill="#5CC9BC" d="M0,206 C37.5,196 75,196 112.5,206 C150,216 187.5,216 225,206 C262.5,196 300,196 337.5,206 C375,216 412.5,216 450,206 C487.5,196 525,196 562.5,206 C600,216 637.5,216 675,206 C712.5,196 750,196 787.5,206 C825,216 862.5,216 900,206 C937.5,196 975,196 1012.5,206 C1050,216 1087.5,216 1125,206 C1162.5,196 1200,196 1237.5,206 C1275,216 1312.5,216 1350,206 C1387.5,196 1425,196 1462.5,206 C1500,216 1537.5,216 1575,206 L1575,260 L0,260 Z"/>
+      <path fill="#39B2A5" opacity="0.9" d="M0,222 C37.5,214 75,214 112.5,222 C150,230 187.5,230 225,222 C262.5,214 300,214 337.5,222 C375,230 412.5,230 450,222 C487.5,214 525,214 562.5,222 C600,230 637.5,230 675,222 C712.5,214 750,214 787.5,222 C825,230 862.5,230 900,222 C937.5,214 975,214 1012.5,222 C1050,230 1087.5,230 1125,222 C1162.5,214 1200,214 1237.5,222 C1275,230 1312.5,230 1350,222 C1387.5,214 1425,214 1462.5,222 C1500,230 1537.5,230 1575,222 L1575,260 L0,260 Z"/>
+    </g>
+  </g>
+</svg>
