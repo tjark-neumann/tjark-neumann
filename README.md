@@ -9,7 +9,7 @@
 
 <br>
 
-**Hey, I'm Tjark and I'm excited to share my projects with you here.**
+**I'm excited to share my projects with you here. I'm always discovering and trying new things, and I'm still learning.**
 
 <img src="assets/ticker.svg" alt="data science · ai · pytorch · jupyter · python · cloudflare · latex" width="100%">
 
