@@ -22,7 +22,7 @@
 
 <div>
 
-I'm an alumni of Bucerius Law School and Sciences Po Paris, and I'm currently at Helmut Schmidt University Hamburg. This is my public profile where I'll slowly start to upload new and old things I've dabbled in. No guarantee that they'll work. I'm excited to share my projects with you here. There might be some uni projects in between.
+I'm an alumni of Bucerius Law School and Sciences Po Paris, and currently at Helmut Schmidt University Hamburg. This is my public profile where I'll slowly start to upload new and old things I've dabbled in. No guarantee that they'll work. I'm excited to share my projects with you here. There might be some uni projects in between.
 
 </div>
 
