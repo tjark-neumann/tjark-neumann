@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-label="Hey, I'm Tjark">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#10162E"/>
+      <stop offset="0.55" stop-color="#16203F"/>
+      <stop offset="1" stop-color="#1C2A4E"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF9E64"/>
+      <stop offset="0.6" stop-color="#FF7AA8"/>
+      <stop offset="1" stop-color="#FF6F91"/>
+    </linearGradient>
+    <linearGradient id="w1" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2C6E78"/>
+      <stop offset="1" stop-color="#255E68"/>
+    </linearGradient>
+    <linearGradient id="w2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1E4F59"/>
+      <stop offset="1" stop-color="#19434C"/>
+    </linearGradient>
+    <linearGradient id="w3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#123740"/>
+      <stop offset="1" stop-color="#0E2C34"/>
+    </linearGradient>
+    <!-- retro slatted sun: progressively thicker gaps toward the horizon -->
+    <clipPath id="slats">
+      <rect x="835" y="60" width="260" height="86"/>
+      <rect x="835" y="152" width="260" height="26"/>
+      <rect x="835" y="186" width="260" height="20"/>
+      <rect x="835" y="214" width="260" height="15"/>
+      <rect x="835" y="237" width="260" height="11"/>
+      <rect x="835" y="256" width="260" height="8"/>
+      <rect x="835" y="272" width="260" height="6"/>
+      <rect x="835" y="286" width="260" height="5"/>
+    </clipPath>
+    <style>
+      .display { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 700; letter-spacing: -1.5px; fill: #FFF4E8; }
+      .sub     { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 400; letter-spacing: 0.5px;  fill: #A9A3C4; }
+      .tag     { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; font-weight: 600; letter-spacing: 4px;   fill: #7FD8CE; }
+      #sunGroup { animation: rise 9s ease-in-out infinite alternate; }
+      #waveA { animation: driftL 14s linear infinite; }
+      #waveB { animation: driftR 19s linear infinite; }
+      #waveC { animation: driftL 26s linear infinite; }
+      #board { animation: bob 5s ease-in-out infinite; transform-origin: 240px 318px; }
+      .fadein  { animation: appear 1.2s ease-out backwards; }
+      .d1 { animation-delay: .15s; } .d2 { animation-delay: .45s; } .d3 { animation-delay: .75s; }
+      @keyframes driftL { from { transform: translateX(0); }     to { transform: translateX(-600px); } }
+      @keyframes driftR { from { transform: translateX(-600px); } to { transform: translateX(0); } }
+      @keyframes rise   { from { transform: translateY(6px); }   to { transform: translateY(-8px); } }
+      @keyframes bob    { 0%,100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-7px) rotate(3deg); } }
+      @keyframes appear { from { opacity: 0; } to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        #sunGroup, #waveA, #waveB, #waveC, #board { animation: none; }
+        .fadein { animation: none; }
+      }
+    </style>
+  </defs>
+
+  <rect width="1200" height="420" fill="url(#sky)"/>
+
+  <!-- sun -->
+  <g id="sunGroup">
+    <circle cx="965" cy="190" r="126" fill="url(#sun)" clip-path="url(#slats)"/>
+  </g>
+
+  <!-- copy -->
+  <g>
+    <text class="display fadein d2" x="92" y="208" font-size="58">Hey, I&#8217;m Tjark.</text>
+  </g>
+
+  <!-- surfboard bobbing where waves will meet it -->
+  <g id="board">
+    <g transform="translate(240,316) rotate(-10)">
+      <ellipse cx="0" cy="0" rx="46" ry="9" fill="#10162E" stroke="#7FD8CE" stroke-width="2.5"/>
+      <line x1="-38" y1="0" x2="38" y2="0" stroke="#7FD8CE" stroke-width="2" stroke-linecap="round"/>
+    </g>
+  </g>
+
+  <!-- three drifting wave layers; each path tiles every 600px -->
+  <g id="waveA">
+    <path fill="url(#w1)" opacity="0.9" d="M0,340 C75,322 150,322 225,340 C300,358 375,358 450,340 C525,322 600,322 675,340 C750,358 825,358 900,340 C975,322 1050,322 1125,340 C1200,358 1275,358 1350,340 C1425,322 1500,322 1575,340 C1650,358 1725,358 1800,340 L1800,420 L0,420 Z"/>
+  </g>
+  <g id="waveB">
+    <path fill="url(#w2)" opacity="0.92" d="M0,362 C75,346 150,346 225,362 C300,378 375,378 450,362 C525,346 600,346 675,362 C750,378 825,378 900,362 C975,346 1050,346 1125,362 C1200,378 1275,378 1350,362 C1425,346 1500,346 1575,362 C1650,378 1725,378 1800,362 L1800,420 L0,420 Z"/>
+  </g>
+  <g id="waveC">
+    <path fill="url(#w3)" d="M0,386 C75,372 150,372 225,386 C300,400 375,400 450,386 C525,372 600,372 675,386 C750,400 825,400 900,386 C975,372 1050,372 1125,386 C1200,400 1275,400 1350,386 C1425,372 1500,372 1575,386 C1650,400 1725,400 1800,386 L1800,420 L0,420 Z"/>
+  </g>
+</svg>
