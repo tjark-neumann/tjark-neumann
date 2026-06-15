@@ -7,13 +7,25 @@
   <img src="assets/header-light.svg" alt="Hey, I'm Tjark" width="100%">
 </picture>
 
+</div>
+
 <br>
+
+<div>
 
 I'm a graduate of Bucerius Law School and Sciences Po Paris, and I'm currently at Helmut Schmidt University Hamburg. I'm excited to share my projects with you here.
 
 </div>
 
 <br>
+
+<div align="center">
+
+<a href="https://tjark-neumann.github.io/tjark-neumann/game/">
+  <img src="assets/press-start.svg" alt="SWELLRUNNER — press start to play" width="100%">
+</a>
+
+</div>
 
 #### &nbsp;🏄 Take the board for a spin
 
@@ -1568,11 +1580,7 @@ endsolid surfboard
 
 <br>
 
-<div align="center">
-
-<a href="https://tjark-neumann.github.io/tjark-neumann/game/">
-  <img src="assets/press-start.svg" alt="SWELLRUNNER — press start to play" width="100%">
-</a>
+<div>
 
 <br><br>
 
