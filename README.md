@@ -1,5 +1,3 @@
-<!-- ☀️ tjark-neumann/tjark-neumann — best viewed with sunscreen on -->
-
 <div align="center">
 
 <picture>
@@ -46,28 +44,5 @@ I'm an alumni of Bucerius Law School and Sciences Po Paris, and I'm currently at
 <a href="https://tjark-neumann.github.io/tjark-neumann/game/">
   <img src="assets/press-start.svg" alt="SWELLRUNNER — press start to play" width="100%">
 </a>
-
-</div>
-
-
-<div align="center">
-
-<br>
-
-<img src="assets/divider.svg" alt="" width="60%">
-
-<br>
-
-</div>
-
-<br>
-
-<div align="center">
-
-<br>
-
-<img src="assets/divider.svg" alt="" width="60%">
-
-<br>
 
 </div>
