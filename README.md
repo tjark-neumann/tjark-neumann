@@ -9,16 +9,6 @@
 
 <br>
 
-**Hey, I'm Tjark and I'm excited to share my projects with you here.**
-
-<img src="assets/ticker.svg" alt="data science · ai · pytorch · jupyter · python · cloudflare · latex" width="100%">
-
-<br>
-
-<div align="center"><img src="assets/divider.svg" alt="" width="60%"></div>
-
-<br>
-
 <details>
 <summary>&nbsp;🏄 <b>Take the board for a spin</b> — drag to rotate</summary>
 <br>
@@ -1600,7 +1590,5 @@ endsolid surfboard
 <br><br>
 
 <img src="assets/divider.svg" alt="" width="60%">
-
-<sub>☀️ &nbsp;Looks even better at golden hour — try dark mode.</sub>
 
 </div>
