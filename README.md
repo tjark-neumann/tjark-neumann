@@ -9,11 +9,33 @@
 
 </div>
 
+
+<div align="center">
+
+<br>
+
+<img src="assets/divider.svg" alt="" width="60%">
+
+<br>
+
+</div>
+
 <br>
 
 <div>
 
 I'm a graduate of Bucerius Law School and Sciences Po Paris, and I'm currently at Helmut Schmidt University Hamburg. I'm excited to share my projects with you here.
+
+</div>
+
+
+<div align="center">
+
+<br>
+
+<img src="assets/divider.svg" alt="" width="60%">
+
+<br>
 
 </div>
 
@@ -24,6 +46,17 @@ I'm a graduate of Bucerius Law School and Sciences Po Paris, and I'm currently a
 <a href="https://tjark-neumann.github.io/tjark-neumann/game/">
   <img src="assets/press-start.svg" alt="SWELLRUNNER — press start to play" width="100%">
 </a>
+
+</div>
+
+
+<div align="center">
+
+<br>
+
+<img src="assets/divider.svg" alt="" width="60%">
+
+<br>
 
 </div>
 
@@ -1580,10 +1613,12 @@ endsolid surfboard
 
 <br>
 
-<div>
+<div align="center">
 
-<br><br>
+<br>
 
 <img src="assets/divider.svg" alt="" width="60%">
+
+<br>
 
 </div>
