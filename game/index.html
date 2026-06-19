@@ -52,7 +52,7 @@
 <a id="back" href="https://github.com/tjark-neumann">&larr; github.com/tjark-neumann</a>
 <div id="frame">
   <canvas id="c" width="960" height="440"></canvas>
-  <div id="hint"><b>space / tap</b> jump &nbsp;·&nbsp; <b>&darr; / hold lower half</b> duck</div>
+  <div id="hint"><b>W / &uarr; / space / tap</b> jump &nbsp;·&nbsp; <b>S / &darr; / hold lower half</b> duck &nbsp;·&nbsp; <b>M</b> mute</div>
 </div>
 
 <script>
@@ -79,8 +79,18 @@ const CFG = {
   CLEAR_TIME: 666              // ms milestone flash, dino-style
 };
 
+// dino flips day <-> night every 700 points; we fade between two palettes
+const INVERT_SCORE = 700;
+const STORM_CHANCE = 0.4;   // odds a day/night turns stormy (only after the first full cycle)
+
+// DEBUG: set to true to force continuous stormy weather from the very start of every run.
+// Code-only switch — there is no in-game control for it.
+const DEBUG_FORCE_STORM = false;
+
 // ---------- palette ----------
-const P = {
+// PD = day (the original look, from header-light), PN = night (from header-dark).
+// P is rebuilt every frame by lerping between them on `nightMix`.
+const PD = {
   ink: "#25223A",
   pink: "#FF6F91",
   pinkSoft: "#FFA3B8",
@@ -90,8 +100,38 @@ const P = {
   sunTop: "#FFB36B", sunLow: "#FF6F91",
   w1: "#8FE0D5", w2: "#5CC9BC", w3: "#39B2A5",
   shark: "#5A6480",
-  gull: "#3A3654"
+  gull: "#3A3654",
+  figure: "#25223A",
+  panel: "#FFF6EA"
 };
+const PN = {
+  ink: "#FFF4E8",
+  pink: "#FF6F91",
+  pinkSoft: "#FF9E64",
+  aqua: "#7FD8CE",
+  cream: "#EAF4F0",
+  skyTop: "#10162E", skyMid: "#16203F", skyLow: "#1C2A4E",
+  sunTop: "#FF9E64", sunLow: "#FF6F91",
+  w1: "#2C6E78", w2: "#1E4F59", w3: "#123740",
+  shark: "#5A6480",
+  gull: "#3A3654",
+  figure: "#25223A",
+  panel: "#0E1428"
+};
+const P = {};
+let INK = [37, 34, 58];
+function hx(c) { const n = parseInt(c.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
+function mix(c1, c2, k) {
+  const a = hx(c1), b = hx(c2);
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * k)},${Math.round(a[1] + (b[1] - a[1]) * k)},${Math.round(a[2] + (b[2] - a[2]) * k)})`;
+}
+function mixPalette(k) {
+  for (const key in PD) P[key] = mix(PD[key], PN[key], k);
+  const a = hx(PD.ink), b = hx(PN.ink);
+  INK = [Math.round(a[0] + (b[0] - a[0]) * k), Math.round(a[1] + (b[1] - a[1]) * k), Math.round(a[2] + (b[2] - a[2]) * k)];
+}
+function inkA(alpha) { return `rgba(${INK[0]},${INK[1]},${INK[2]},${alpha})`; }
+mixPalette(0);
 
 // ---------- state ----------
 const ST = { START: 0, PLAY: 1, OVER: 2 };
@@ -99,7 +139,36 @@ let state = ST.START;
 let t = 0;
 let speed, dist, score, hi = 0, shake = 0;
 let flashUntil = 0;                   // score milestone flash (every 100, like dino)
+let nightMix = 0, nightTarget = 0, nextInvert = INVERT_SCORE;   // day/night cycle
+let phase = 0;                                  // counts day/night segments since the run began
+let storm = false, stormMix = 0;                // stormy weather + its eased visual intensity
+let lightning = 0, bolt = null;                 // lightning flash timer + current bolt path
+let muted = false;
 try { hi = +localStorage.getItem("swellrunner-hi") || 0; } catch (e) {}
+
+// ---------- audio (tiny Web Audio synth — dino-style blips, no files) ----------
+let actx = null;
+function resumeAudio() {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === "suspended") actx.resume();
+  } catch (e) {}
+}
+function beep(freq, dur, type, vol, when) {
+  if (muted || !actx) return;
+  const start = actx.currentTime + (when || 0);
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type || "square";
+  o.frequency.setValueAtTime(freq, start);
+  g.gain.setValueAtTime(vol, start);
+  g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(start); o.stop(start + dur);
+}
+const sndJump    = () => beep(520, 0.12, "square", 0.10, 0);
+const sndPoint   = () => { beep(740, 0.08, "square", 0.09, 0); beep(988, 0.10, "square", 0.09, 0.09); };
+const sndHit     = () => { beep(200, 0.18, "sawtooth", 0.13, 0); beep(90, 0.32, "sawtooth", 0.11, 0.07); };
+const sndThunder = () => { beep(82, 0.5, "sawtooth", 0.11, 0.05); beep(48, 0.85, "sawtooth", 0.10, 0.12); };
 
 const surfer = { x: 150, y: WATER, vy: 0, w: 46, h: 58, duck: false, onWater: true, trickAngle: 0 };
 let obstacles = [], foam = [], clouds = [];
@@ -107,6 +176,9 @@ let nextSpawnX = 0;                   // distance-based spawning, dino-style
 
 function reset() {
   speed = CFG.START_SPEED; dist = 0; score = 0; shake = 0; flashUntil = 0;
+  nightMix = 0; nightTarget = 0; nextInvert = INVERT_SCORE;
+  phase = 0; storm = DEBUG_FORCE_STORM; stormMix = 0;
+  lightning = 0; bolt = null;
   surfer.y = WATER; surfer.vy = 0; surfer.duck = false; surfer.onWater = true;
   obstacles = []; foam = [];
   nextSpawnX = dist + 520;            // breathing room before the first obstacle
@@ -114,6 +186,18 @@ function reset() {
 
 for (let i = 0; i < 5; i++) {
   clouds.push({ x: Math.random() * W, y: 40 + Math.random() * 110, s: 0.6 + Math.random() * 0.9 });
+}
+
+// stars only show at night (faded in by nightMix)
+const stars = [];
+for (let i = 0; i < 46; i++) {
+  stars.push({ x: Math.random() * W, y: 20 + Math.random() * (WATER - 80), r: 0.5 + Math.random() * 1.3, tw: Math.random() * 6.28 });
+}
+
+// rain pool — only advanced/drawn when a storm is rolling
+const rain = [];
+for (let i = 0; i < 170; i++) {
+  rain.push({ x: Math.random() * (W + 80), y: Math.random() * H, len: 10 + Math.random() * 10, sp: 13 + Math.random() * 8 });
 }
 
 // ---------- input (dino-style: variable jump height) ----------
@@ -125,6 +209,7 @@ function startJump() {
     surfer.onWater = false;
     surfer.duck = false;
     splash(surfer.x, WATER, 8);
+    sndJump();
   }
 }
 function endJump() {
@@ -137,19 +222,25 @@ function setDuck(on) {
   surfer.duck = on;
 }
 
+// jump: W / ↑ / space   ·   duck: S / ↓   ·   any scheme works (all three overlap)
+const JUMP_KEYS = ["Space", "ArrowUp", "KeyW"];
+const DUCK_KEYS = ["ArrowDown", "KeyS"];
 addEventListener("keydown", e => {
   if (e.repeat) return;
-  if (e.code === "Space" || e.code === "ArrowUp") { e.preventDefault(); startJump(); }
-  if (e.code === "ArrowDown") { e.preventDefault(); setDuck(true); }
+  resumeAudio();
+  if (JUMP_KEYS.includes(e.code)) { e.preventDefault(); startJump(); }
+  else if (DUCK_KEYS.includes(e.code)) { e.preventDefault(); setDuck(true); }
+  else if (e.code === "KeyM") { muted = !muted; }
 });
 addEventListener("keyup", e => {
-  if (e.code === "Space" || e.code === "ArrowUp") endJump();
-  if (e.code === "ArrowDown") setDuck(false);
+  if (JUMP_KEYS.includes(e.code)) endJump();
+  if (DUCK_KEYS.includes(e.code)) setDuck(false);
 });
 
 let duckTouch = null, jumpTouch = null;
 cv.addEventListener("touchstart", e => {
   e.preventDefault();
+  resumeAudio();
   const r = cv.getBoundingClientRect();
   const touch = e.changedTouches[0];
   const yFrac = (touch.clientY - r.top) / r.height;
@@ -163,6 +254,7 @@ cv.addEventListener("touchend", e => {
   }
 }, { passive: false });
 cv.addEventListener("mousedown", e => {
+  resumeAudio();
   const r = cv.getBoundingClientRect();
   if (state === ST.PLAY && (e.clientY - r.top) / r.height > 0.62) setDuck(true);
   else startJump();
@@ -176,20 +268,31 @@ function spawn() {
   const gullsAllowed = speed >= CFG.GULL_MIN_SPEED;
   let o;
   if (gullsAllowed && roll < 0.25)
-    o = { kind: "gull", x: W + 60, w: 56, fy: WATER - 86, flap: Math.random() * 6 };
+    o = { kind: "gull", x: W + 60, w: 56, fy: WATER - 56, flap: Math.random() * 6 };
   else if (roll < 0.45)
     o = { kind: "buoy",  x: W + 60, w: 34, bob: Math.random() * 6 };
-  else if (roll < 0.74)
-    o = { kind: "wave",  x: W + 60, w: 110, h: 56 + Math.random() * 14 };
-  else
+  else if (roll < 0.74) {
+    // waves break in three sizes — small ripple, mid swell, big set wave —
+    // so the silhouette and timing vary rather than repeating one shape
+    const tier = Math.random();
+    let ww, hh;
+    if (tier < 0.42)      { ww = 78;  hh = 36 + Math.random() * 8; }
+    else if (tier < 0.8)  { ww = 112; hh = 52 + Math.random() * 10; }
+    else                  { ww = 140; hh = 60 + Math.random() * 8; }   // big set wave — toned down so it stays clearable
+    o = { kind: "wave", x: W + 60, w: ww, h: hh };
+  } else
     o = { kind: "shark", x: W + 60, w: 64 };
   obstacles.push(o);
 
-  // dino gap formula: gap = width*speed + MIN_GAP*coeff, then random up to gap*1.5.
-  // Guarantees reaction + landing room at every speed.
-  const gap = Math.round(o.w * speed * CFG.GAP_COEFF + CFG.MIN_GAP);
-  const maxGap = Math.round(gap * CFG.MAX_GAP_COEFF);
-  nextSpawnX = dist + gap + Math.random() * (maxGap - gap);
+  // dino gap formula, then a per-obstacle roll that tightens spacing into a
+  // quick pair or stretches it into a lull — so the rhythm never settles flat
+  const minGap = Math.round(o.w * speed + CFG.MIN_GAP * CFG.GAP_COEFF);
+  const maxGap = Math.round(minGap * CFG.MAX_GAP_COEFF);
+  let gap = minGap + Math.random() * (maxGap - minGap);
+  const r = Math.random();
+  if (r < 0.20)      gap *= 0.62;   // tight pairing
+  else if (r > 0.80) gap *= 1.55;   // long breather
+  nextSpawnX = dist + gap;
 }
 
 function splash(x, y, n) {
@@ -226,8 +329,29 @@ function update() {
 
   const prev = score;
   score = Math.floor(dist * CFG.SCORE_COEFF);
-  if (score > 0 && score % 100 === 0 && prev % 100 !== 0)
+  if (score > 0 && score % 100 === 0 && prev % 100 !== 0) {
     flashUntil = performance.now() + CFG.CLEAR_TIME;   // milestone flash, dino-style
+    sndPoint();
+  }
+
+  // day/night cycle: flip target every 700 points, ease nightMix toward it.
+  // each new segment (after the first day AND night, i.e. phase >= 2) may turn stormy.
+  if (score >= nextInvert) {
+    nightTarget = nightTarget ? 0 : 1;
+    nextInvert += INVERT_SCORE;
+    phase++;
+    storm = DEBUG_FORCE_STORM || (phase >= 2 && Math.random() < STORM_CHANCE);
+  }
+  nightMix += (nightTarget - nightMix) * 0.04;
+  stormMix += ((storm ? 1 : 0) - stormMix) * 0.02;
+
+  // lightning during heavy storm — flash + jagged bolt + thunder
+  if (storm && stormMix > 0.5 && lightning <= 0 && Math.random() < 0.0035) {
+    lightning = 14;
+    bolt = makeBolt(W * (0.12 + Math.random() * 0.76));
+    sndThunder();
+  }
+  if (lightning > 0) lightning--;
 
   // surfer physics
   if (!surfer.onWater) {
@@ -244,12 +368,13 @@ function update() {
   if (dist >= nextSpawnX) spawn();
   for (const o of obstacles) {
     o.x -= speed;
-    if (o.kind === "gull") o.fy = WATER - 86 + Math.sin((t + o.flap * 10) * 0.1) * 5;
+    if (o.kind === "gull") o.fy = WATER - 56 + Math.sin((t + o.flap * 10) * 0.1) * 5;
     if (hit(surferBox(), obstacleBox(o))) {
       state = ST.OVER; shake = 14;
       hi = Math.max(hi, score);
       try { localStorage.setItem("swellrunner-hi", hi); } catch (e) {}
       splash(surfer.x, surfer.y, 16);
+      sndHit();
     }
   }
   obstacles = obstacles.filter(o => o.x > -160);
@@ -282,12 +407,79 @@ function waveBand(yBase, amp, wl, phase, color, alpha) {
   cx.fillStyle = color;
   cx.beginPath();
   cx.moveTo(0, H);
-  for (let x = 0; x <= W; x += 8)
-    cx.lineTo(x, yBase + Math.sin((x + phase) / wl) * amp);
+  // primary swell plus a shorter harmonic so crests rise and dip unevenly
+  for (let x = 0; x <= W; x += 6)
+    cx.lineTo(x, yBase + Math.sin((x + phase) / wl) * amp + Math.sin((x + phase) / (wl * 0.45)) * amp * 0.38);
   cx.lineTo(W, H);
   cx.closePath();
   cx.fill();
   cx.globalAlpha = 1;
+}
+
+function makeBolt(x0) {
+  // jagged lightning path from the top of the sky down to the horizon
+  const pts = [{ x: x0, y: 0 }];
+  let x = x0, y = 0;
+  while (y < WATER) {
+    y += 18 + Math.random() * 30;
+    x += (Math.random() - 0.5) * 44;
+    pts.push({ x, y: Math.min(y, WATER) });
+  }
+  return pts;
+}
+
+function drawStormClouds(mix) {
+  // a heavy overcast ceiling drifting across the top, smothering the sun
+  if (mix < 0.02) return;
+  cx.save();
+  cx.globalAlpha = Math.min(1, mix) * 0.92;
+  cx.fillStyle = "#2A2E3C";
+  const drift = (t * 0.4) % 130;
+  for (let x = -160; x < W + 160; x += 130) {
+    const bx = x - drift;
+    const by = 78 + Math.sin(x * 0.6) * 18;
+    cx.beginPath();
+    cx.ellipse(bx, by, 96, 46, 0, 0, Math.PI * 2);
+    cx.ellipse(bx + 60, by + 20, 72, 36, 0, 0, Math.PI * 2);
+    cx.ellipse(bx - 58, by + 16, 64, 32, 0, 0, Math.PI * 2);
+    cx.fill();
+  }
+  cx.restore();
+}
+
+function drawRain(mix) {
+  // wind-blown diagonal streaks; count scales with the storm's intensity
+  if (mix < 0.05) return;
+  const n = Math.floor(rain.length * mix);
+  cx.strokeStyle = "rgba(200,214,230,0.5)";
+  cx.lineWidth = 1.4;
+  cx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const d = rain[i];
+    cx.moveTo(d.x, d.y);
+    cx.lineTo(d.x - d.len * 0.4, d.y + d.len);
+    d.y += d.sp; d.x -= d.sp * 0.4;
+    if (d.y > H) { d.y = -12; d.x = Math.random() * (W + 80); }
+    if (d.x < -30) d.x += W + 60;
+  }
+  cx.stroke();
+}
+
+function drawLightning() {
+  if (lightning <= 0 || !bolt) return;
+  const a = lightning / 14;
+  cx.fillStyle = `rgba(236,240,255,${a * 0.5})`;      // whole-scene flash
+  cx.fillRect(-20, -20, W + 40, H + 40);
+  cx.lineCap = "round"; cx.lineJoin = "round";
+  cx.strokeStyle = `rgba(190,205,255,${a * 0.6})`;    // soft glow
+  cx.lineWidth = 7;
+  cx.beginPath();
+  cx.moveTo(bolt[0].x, bolt[0].y);
+  for (const p of bolt) cx.lineTo(p.x, p.y);
+  cx.stroke();
+  cx.strokeStyle = `rgba(255,255,255,${0.6 + a * 0.4})`;  // bright core
+  cx.lineWidth = 2.5;
+  cx.stroke();
 }
 
 function drawSurfer() {
@@ -305,8 +497,8 @@ function drawSurfer() {
   cx.beginPath(); cx.moveTo(-24, 2); cx.lineTo(24, 2); cx.stroke();
 
   const duckNow = b.duck && b.onWater;
-  cx.strokeStyle = P.ink; cx.lineWidth = 4.5; cx.lineCap = "round";
-  cx.fillStyle = P.ink;
+  cx.strokeStyle = P.figure; cx.lineWidth = 4.5; cx.lineCap = "round";
+  cx.fillStyle = P.figure;
 
   if (duckNow) {
     cx.beginPath(); cx.moveTo(-8, -2); cx.lineTo(-4, -12); cx.lineTo(4, -12); cx.lineTo(9, -2); cx.stroke();
@@ -325,6 +517,20 @@ function drawSurfer() {
   cx.restore();
 }
 
+function drawGull(x, y, s, phase, color) {
+  // clean two-arc seagull silhouette — matches the gulls on the title screen
+  const flap = Math.sin(phase);
+  const lift = (11 + flap * 6) * s;
+  cx.strokeStyle = color;
+  cx.lineWidth = 3.4 * s;
+  cx.lineCap = "round"; cx.lineJoin = "round";
+  cx.beginPath();
+  cx.moveTo(x - 24 * s, y - flap * 5 * s);
+  cx.quadraticCurveTo(x - 9 * s, y - lift, x, y);
+  cx.quadraticCurveTo(x + 9 * s, y - lift, x + 24 * s, y - flap * 5 * s);
+  cx.stroke();
+}
+
 function drawObstacle(o) {
   if (o.kind === "buoy") {
     // hull half-submerged: sits IN the water, gently rocking with it
@@ -340,16 +546,47 @@ function drawObstacle(o) {
     cx.beginPath(); cx.moveTo(o.x - 22, y + 1); cx.lineTo(o.x + 22, y + 1); cx.stroke();
   }
   else if (o.kind === "wave") {
+    // a hollow, surfable tube: concave open face on the left, a lip pitching
+    // over the top into a barrel, with the dark tube mouth tucked underneath
+    const baseY = WATER + 6;
+    const cY = WATER - o.h;                          // crest height
+    const lipX = o.x - o.w * 0.20, lipY = cY + o.h * 0.34;   // lip tip, thrown forward
+    const pkX = o.x + o.w * 0.14;                    // peak of the crest
+
+    const body = new Path2D();
+    body.moveTo(o.x - o.w * 0.5, baseY);                                              // front foot
+    body.quadraticCurveTo(o.x - o.w * 0.42, cY + o.h * 0.62, lipX, lipY);             // concave open face
+    body.quadraticCurveTo(o.x - o.w * 0.06, cY - o.h * 0.10, pkX, cY);               // lip curling up & over
+    body.quadraticCurveTo(o.x + o.w * 0.42, cY + o.h * 0.45, o.x + o.w * 0.5, baseY); // back slope
+    body.closePath();
+
     cx.fillStyle = P.aqua;
+    cx.fill(body);
+
+    // dark hollow of the barrel, clipped inside the wave
+    cx.save();
+    cx.clip(body);
+    cx.fillStyle = P.w3;
+    cx.globalAlpha = 0.85;
     cx.beginPath();
-    cx.moveTo(o.x - o.w / 2, WATER + 6);
-    cx.quadraticCurveTo(o.x - o.w * 0.1, WATER - o.h * 1.05, o.x + o.w * 0.18, WATER - o.h);
-    cx.quadraticCurveTo(o.x + o.w * 0.02, WATER - o.h * 0.55, o.x + o.w * 0.26, WATER - o.h * 0.42);
-    cx.quadraticCurveTo(o.x + o.w * 0.5, WATER - o.h * 0.2, o.x + o.w / 2, WATER + 6);
-    cx.closePath(); cx.fill();
+    cx.ellipse(o.x - o.w * 0.02, cY + o.h * 0.46, o.w * 0.17, o.h * 0.38, -0.45, 0, Math.PI * 2);
+    cx.fill();
+    // a brighter aqua rim of water spinning inside the tube
+    cx.globalAlpha = 0.5;
+    cx.fillStyle = P.w1;
+    cx.beginPath();
+    cx.ellipse(o.x - o.w * 0.05, cY + o.h * 0.40, o.w * 0.21, o.h * 0.44, -0.45, 0, Math.PI * 2);
+    cx.fill();
+    cx.restore();
+
+    // foam along the throwing lip and breaking at the base
     cx.fillStyle = P.cream;
-    cx.beginPath(); cx.arc(o.x + o.w * 0.18, WATER - o.h, 7, 0, Math.PI * 2); cx.fill();
-    cx.beginPath(); cx.arc(o.x + o.w * 0.07, WATER - o.h * 0.94, 5, 0, Math.PI * 2); cx.fill();
+    const fr = Math.max(4, o.h * 0.12);
+    cx.beginPath(); cx.arc(pkX, cY, fr * 0.9, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc((pkX + lipX) / 2, cY + o.h * 0.04, fr * 0.85, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(lipX, lipY - o.h * 0.05, fr, 0, Math.PI * 2); cx.fill();           // lip-tip spray
+    cx.beginPath(); cx.arc(lipX - fr * 0.9, lipY - o.h * 0.12, fr * 0.6, 0, Math.PI * 2); cx.fill();
+    cx.beginPath(); cx.arc(o.x - o.w * 0.5 + fr * 1.6, baseY - 2, fr * 0.7, 0, Math.PI * 2); cx.fill();
   }
   else if (o.kind === "shark") {
     cx.fillStyle = P.shark;
@@ -361,22 +598,12 @@ function drawObstacle(o) {
     cx.strokeStyle = "rgba(255,255,255,0.7)"; cx.lineWidth = 2;
     cx.beginPath(); cx.moveTo(o.x + 22, WATER + 3); cx.lineTo(o.x + 44, WATER + 3); cx.stroke();
   }
-  else { // gull: swooping low, wings raking a tall stripe of air — duck under it
+  else { // a small flock of gulls swooping into your lane — duck under them
     const y = o.fy;
-    const flap = Math.sin((t + o.flap * 10) * 0.25);
-    cx.strokeStyle = P.gull; cx.lineWidth = 5; cx.lineCap = "round";
-    cx.beginPath();                                   // big upper wings
-    cx.moveTo(o.x - 22, y - 26 - flap * 14);
-    cx.quadraticCurveTo(o.x - 9, y + 5, o.x, y);
-    cx.quadraticCurveTo(o.x + 9, y + 5, o.x + 22, y - 26 - flap * 14);
-    cx.stroke();
-    cx.lineWidth = 3;                                 // trailing dive streaks
-    cx.globalAlpha = 0.35;
-    cx.beginPath(); cx.moveTo(o.x + 14, y - 44); cx.lineTo(o.x + 30, y - 64); cx.stroke();
-    cx.beginPath(); cx.moveTo(o.x - 2, y - 52); cx.lineTo(o.x + 10, y - 74); cx.stroke();
-    cx.globalAlpha = 1;
-    cx.fillStyle = P.pink;
-    cx.beginPath(); cx.arc(o.x, y + 1, 3, 0, Math.PI * 2); cx.fill();
+    const ph = (t + o.flap * 10) * 0.18;
+    drawGull(o.x,      y,       1.25, ph,        P.gull);   // lead gull, at head height
+    drawGull(o.x + 30, y - 48,  0.9,  ph + 1.1,  P.gull);   // trailing high
+    drawGull(o.x - 28, y - 30,  0.72, ph + 2.2,  P.gull);   // trailing back
   }
 }
 
@@ -396,6 +623,7 @@ function text(str, x, y, size, color, align = "center", spacing = 0) {
 
 // ---------- render ----------
 function render() {
+  mixPalette(nightMix);                 // rebuild the live palette for this frame
   cx.save();
   if (shake > 0.5) cx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
 
@@ -405,9 +633,19 @@ function render() {
   cx.fillStyle = sky;
   cx.fillRect(-20, -20, W + 40, H + 40);
 
+  // stars fade in with the night, and are smothered as a storm builds
+  if (nightMix > 0.02) {
+    cx.fillStyle = "#FFF4E8";
+    for (const s of stars) {
+      cx.globalAlpha = nightMix * (1 - stormMix * 0.9) * (0.35 + 0.35 * Math.sin(t * 0.05 + s.tw));
+      cx.beginPath(); cx.arc(s.x, s.y, s.r, 0, Math.PI * 2); cx.fill();
+    }
+    cx.globalAlpha = 1;
+  }
+
   slattedSun(W - 190, 128, 92);
 
-  cx.fillStyle = "rgba(255,255,255,0.65)";
+  cx.fillStyle = nightMix > 0.5 ? "rgba(220,228,240,0.45)" : "rgba(255,255,255,0.65)";
   for (const c of clouds) {
     cx.beginPath();
     cx.ellipse(c.x, c.y, 34 * c.s, 11 * c.s, 0, 0, Math.PI * 2);
@@ -415,14 +653,33 @@ function render() {
     cx.fill();
   }
 
+  // storm: heavy clouds roll over the sun, and the whole sky turns gloomy
+  drawStormClouds(stormMix);
+  if (stormMix > 0.02) {
+    cx.globalAlpha = stormMix * 0.5;
+    cx.fillStyle = "#1E2230";
+    cx.fillRect(-20, -20, W + 40, WATER + 40);
+    cx.globalAlpha = 1;
+  }
+
   // sea
   const sea = cx.createLinearGradient(0, WATER, 0, H);
   sea.addColorStop(0, P.w2); sea.addColorStop(1, P.w3);
   cx.fillStyle = sea;
   cx.fillRect(-20, WATER, W + 40, H - WATER + 20);
-  waveBand(WATER + 2, 4, 46, t * speedSafe() * 0.9, P.w1, 0.85);
-  waveBand(WATER + 22, 5, 64, -t * speedSafe() * 0.6, P.w1, 0.35);
-  waveBand(WATER + 44, 6, 80, t * speedSafe() * 0.4, P.cream, 0.12);
+  // layered swell — different amplitudes and wavelengths rolling at their own pace
+  waveBand(WATER + 2,  5,  52,  t * speedSafe() * 0.90, P.w1, 0.85);
+  waveBand(WATER + 18, 7,  78, -t * speedSafe() * 0.60, P.w1, 0.40);
+  waveBand(WATER + 38, 9,  108, t * speedSafe() * 0.42, P.cream, 0.13);
+  waveBand(WATER + 60, 12, 150, -t * speedSafe() * 0.28, P.w2, 0.45);
+
+  // storm darkens the water too
+  if (stormMix > 0.02) {
+    cx.globalAlpha = stormMix * 0.38;
+    cx.fillStyle = "#10202A";
+    cx.fillRect(-20, WATER, W + 40, H - WATER + 20);
+    cx.globalAlpha = 1;
+  }
 
   for (const o of obstacles) drawObstacle(o);
 
@@ -436,31 +693,42 @@ function render() {
 
   if (state !== ST.START) drawSurfer();
 
+  // weather in front of the scene
+  drawRain(stormMix);
+  drawLightning();
+
   // HUD — dino-style: "HI 00231  00045" tucked in the top-right, flashing on milestones
   if (state === ST.PLAY) {
     const flashing = performance.now() < flashUntil;
     const show = flashing ? (Math.floor(t / 15) % 2 === 0) : true;
     if (show) text(String(score).padStart(5, "0"), W - 30, 42, 17, P.ink, "right", 3);
-    if (hi)   text("HI " + String(hi).padStart(5, "0"), W - 124, 42, 17, "rgba(37,34,58,0.4)", "right", 3);
+    if (hi)   text("HI " + String(hi).padStart(5, "0"), W - 124, 42, 17, inkA(0.4), "right", 3);
+    if (muted) text("MUTED", 30, 42, 12, inkA(0.4), "left", 2);
   }
 
   if (state === ST.START) {
+    // decorative gulls drifting near the sun — the same silhouette as the obstacle
+    drawGull(W * 0.24 + Math.sin(t * 0.020) * 10,     118 + Math.sin(t * 0.030) * 4, 1.0,  t * 0.12,       P.gull);
+    drawGull(W * 0.36 + Math.sin(t * 0.018 + 1) * 12,  94 + Math.cos(t * 0.025) * 4, 0.7,  t * 0.12 + 1.0, P.gull);
+    drawGull(W * 0.60 + Math.sin(t * 0.015 + 2) * 14, 150 + Math.sin(t * 0.020) * 5, 0.85, t * 0.12 + 2.0, P.gull);
+
     text("SWELLRUNNER", W / 2, H / 2 - 46, 44, P.ink, "center", 10);
-    text("JUMP THE BUOYS, WAVES & SHARKS — DUCK THE GULLS", W / 2, H / 2 - 8, 13, "rgba(37,34,58,0.6)", "center", 3);
+    text("JUMP THE BUOYS, WAVES & SHARKS — DUCK THE GULLS", W / 2, H / 2 - 8, 13, inkA(0.6), "center", 3);
     if (Math.floor(t / 30) % 2 === 0)
       text("PRESS SPACE OR TAP TO START", W / 2, H / 2 + 40, 16, P.pink, "center", 4);
     surfer.y = WATER; drawSurfer();
   }
 
   if (state === ST.OVER) {
-    cx.fillStyle = "rgba(255,246,234,0.82)";
+    cx.globalAlpha = 0.82; cx.fillStyle = P.panel;
     cx.fillRect(0, 0, W, H);
+    cx.globalAlpha = 1;
     text("WIPEOUT", W / 2, H / 2 - 40, 40, P.ink, "center", 12);
     text(String(score).padStart(5, "0"), W / 2, H / 2 + 2, 24, P.pink, "center", 6);
     if (score >= hi && score > 0)
       text("NEW HIGH SCORE", W / 2, H / 2 + 28, 13, P.aqua, "center", 4);
     else if (hi)
-      text("HI " + String(hi).padStart(5, "0"), W / 2, H / 2 + 28, 13, "rgba(37,34,58,0.5)", "center", 4);
+      text("HI " + String(hi).padStart(5, "0"), W / 2, H / 2 + 28, 13, inkA(0.5), "center", 4);
     if (Math.floor(t / 30) % 2 === 0)
       text("SPACE OR TAP TO PADDLE BACK OUT", W / 2, H / 2 + 66, 14, P.ink, "center", 3);
   }
